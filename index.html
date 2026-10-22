@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Форма КП</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f1f3f6);
+    --text: var(--tg-theme-text-color, #16181d);
+    --hint: var(--tg-theme-hint-color, #8a8f98);
+    --accent: var(--tg-theme-button-color, #008dd2);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --line: color-mix(in srgb, var(--hint) 22%, transparent);
+    --sel: color-mix(in srgb, var(--accent) 12%, var(--bg));
+    --danger: var(--tg-theme-destructive-text-color, #d93025);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg2); color: var(--text);
+    font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+  body { padding-bottom: 92px; overflow-x: hidden; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  .card { background: var(--bg); margin: 10px 0; padding: 12px 14px; }
+  @media (min-width: 660px) { .card { border-radius: 12px; } }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--hint); margin: 0 0 8px; }
+  .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .seg button, .chip { border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 10px;
+    padding: 8px 12px; font: inherit; cursor: pointer; }
+  .seg button.on, .chip.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .seg.grow button { flex: 1 1 0; }
+  .kits { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .kits .chip { white-space: nowrap; font-size: 14px; }
+  .search { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: inherit;
+    background: var(--bg2); color: var(--text); outline: none; }
+  .sec { padding-top: 6px; }
+  .sec-title { font-weight: 600; font-size: 14px; padding: 10px 0 4px; color: var(--hint); }
+  .item { display: flex; align-items: center; gap: 10px; padding: 9px 8px; margin: 0 -8px; border-radius: 10px; }
+  .item.on { background: var(--sel); }
+  .item .info { flex: 1; min-width: 0; cursor: pointer; }
+  .item .name { font-size: 15px; }
+  .item .meta { font-size: 13px; color: var(--hint); margin-top: 2px; }
+  .item .meta .new { color: var(--accent); font-weight: 600; }
+  .step { display: flex; align-items: center; gap: 2px; flex: none; }
+  .step button { width: 34px; height: 34px; border-radius: 50%; border: 0; font-size: 20px; line-height: 1;
+    background: var(--bg2); color: var(--accent); cursor: pointer; }
+  .step button.add { background: var(--accent); color: var(--accent-text); }
+  .step input { width: 44px; text-align: center; border: 0; background: transparent; color: var(--text); font-family: inherit; font-size: 16px; font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin: 6px 0; flex-wrap: wrap; }
+  .allrow { display: flex; align-items: center; gap: 8px; flex: none; }
+  .row .lab { color: var(--text); flex: 1 1 150px; min-width: 0; }
+  .num { width: 78px; border: 1px solid var(--line); border-radius: 10px; padding: 8px; font: inherit; text-align: center;
+    background: var(--bg2); color: var(--text); }
+  .muted { color: var(--hint); font-size: 13px; }
+  .lines .l { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+  .lines .l:last-child { border-bottom: 0; }
+  .lines .l b { white-space: nowrap; }
+  .total { display: flex; justify-content: space-between; font-size: 18px; font-weight: 700; padding-top: 8px; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--bg); border-top: 1px solid var(--line);
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+  .bar .wrap { display: flex; align-items: center; gap: 12px; }
+  .bar .sum { flex: 1; }
+  .bar .sum b { font-size: 17px; }
+  .go { border: 0; border-radius: 10px; background: var(--accent); color: var(--accent-text); padding: 12px 16px; font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .go:disabled { opacity: .45; }
+  .state { text-align: center; padding: 60px 20px; color: var(--hint); }
+  .err { color: var(--danger); }
+  .hidden { display: none !important; }
+  .in-tg .go.local { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="state" class="state">Загружаю прайс…</div>
+
+  <div id="app" class="hidden">
+    <div class="card">
+      <h2>Организация</h2>
+      <div id="orgs" class="seg grow"></div>
+      <div id="vat" class="muted" style="margin-top:6px"></div>
+    </div>
+
+    <div class="card" id="kitsCard">
+      <h2>Готовые наборы</h2>
+      <div id="kits" class="kits"></div>
+    </div>
+
+    <div class="card">
+      <input id="q" class="search" type="search" placeholder="Поиск по прайсу: асн, дут, датчик…" autocomplete="off">
+      <div id="list"></div>
+    </div>
+
+    <div class="card" id="setCard">
+      <h2>Количество на все позиции</h2>
+      <div class="row">
+        <span class="lab">По числу машин</span>
+        <span class="allrow">
+          <input id="allQty" class="num" type="number" min="1" max="9999" inputmode="numeric" placeholder="—">
+          <button id="allApply" class="chip" type="button">Применить</button>
+        </span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Скидка или наценка</h2>
+      <div id="disc" class="seg"></div>
+      <div class="row">
+        <span class="lab">Своё значение, %</span>
+        <input id="discOwn" class="num" type="text" inputmode="decimal" placeholder="−7 / +5">
+      </div>
+      <div id="scopeWrap">
+        <div class="muted" style="margin:8px 0 6px">На что действует</div>
+        <div id="scope" class="seg grow"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Расчёт</h2>
+      <div id="lines" class="lines"></div>
+      <div class="total"><span>Итого</span><span id="total">0 ₽</span></div>
+      <div id="vatNote" class="muted"></div>
+    </div>
+
+    <div class="card">
+      <h2>Файл</h2>
+      <div id="fmt" class="seg grow"></div>
+      <p class="muted" style="margin:8px 0 0">Бот покажет расчёт и пришлёт файл в чат. Перед отправкой клиенту расчёт можно поправить кнопкой «✏️ Изменить».</p>
+    </div>
+  </div>
+</div>
+
+<div id="bar" class="bar hidden">
+  <div class="wrap">
+    <div class="sum"><div class="muted" id="cnt">Ничего не выбрано</div><b id="barTotal">0 ₽</b></div>
+    <button id="goLocal" class="go local" type="button" disabled>Сформировать КП</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
+  var inTg = !!(tg && tg.initData);
+  if (inTg) document.body.classList.add("in-tg");
+  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+
+  var qs = new URLSearchParams(location.search);
+  var API = qs.get("api"), KEY = qs.get("k");
+  var $ = function (id) { return document.getElementById(id); };
+  var DISC = [0, -3, -5, -7, -10, -15, 5, 10];
+  var FMT = [["docx", "📄 Word"], ["pdf", "📕 PDF"], ["both", "Оба"]];
+  var SCOPE = [["all", "На всё"], ["service", "Монтаж"], ["product", "Оборудование"]];
+
+  var data = null, byId = {}, order = {};
+  var st = { org: null, qty: {}, disc: 0, scope: "all", fmt: "docx", q: "" };
+
+  function store(k, v) { try { localStorage.setItem("kp_" + k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem("kp_" + k); } catch (e) { return null; } }
+
+  function money(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " ₽"; }
+  // как в боте: цена × (1 + %/100), целые рубли, «половина вверх», целочисленно
+  function adjust(price, pct) { var c = Math.round(pct * 100), v = price * (10000 + c); return Math.floor((v + 5000) / 10000); }
+  function pctLabel(v) { return (v < 0 ? "−" : "+") + String(Math.abs(v)).replace(".", ",") + "%"; }
+  function changeFor(item) {
+    if (!st.disc) return 0;
+    if (st.scope === "all" || st.scope === item.kind) return st.disc;
+    return 0;
+  }
+  function haptic() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} }
+
+  function fail(msg) { $("state").innerHTML = '<div class="err">' + msg + '</div>'; $("state").classList.remove("hidden"); }
+
+  function start() {
+    if (!API || !KEY || !inTg) { fail("Откройте форму кнопкой «🧾 Форма КП» в чате с ботом в Telegram."); return; }
+    fetch(API + (API.indexOf("?") >= 0 ? "&" : "?") + "api=price&k=" + encodeURIComponent(KEY) +
+          "&init=" + encodeURIComponent(tg.initData))
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (!res.ok) throw new Error(res.error || "ошибка");
+        data = res.data;
+        data.sections.forEach(function (s, si) { s.items.forEach(function (it, ii) { byId[it.id] = it; order[it.id] = si * 1000 + ii; }); });
+        var lastOrg = load("org");
+        st.org = data.orgs.some(function (o) { return o.id === lastOrg; }) ? lastOrg : null;
+        var f = load("fmt"); if (f && FMT.some(function (x) { return x[0] === f; })) st.fmt = f;
+        $("state").classList.add("hidden"); $("app").classList.remove("hidden"); $("bar").classList.remove("hidden");
+        renderStatic(); render();
+      })
+      .catch(function (e) { fail("Не удалось загрузить прайс: " + (e.message || e) + "<br><br>Закройте форму и откройте снова."); });
+  }
+
+  function seg(el, items, cur, onPick) {
+    el.innerHTML = "";
+    items.forEach(function (x) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = x[1]; if (x[0] === cur) b.className = "on";
+      b.onclick = function () { onPick(x[0]); haptic(); render(); };
+      el.appendChild(b);
+    });
+  }
+
+  function renderStatic() {
+    var kits = $("kits"); kits.innerHTML = "";
+    if (!data.kits.length) $("kitsCard").classList.add("hidden");
+    data.kits.forEach(function (k) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "chip"; b.textContent = "📦 " + k.name;
+      b.onclick = function () { k.items.forEach(function (it) { st.qty[it[0]] = (st.qty[it[0]] || 0) + it[1]; }); haptic(); render(); };
+      kits.appendChild(b);
+    });
+    $("q").oninput = function () { st.q = this.value.trim().toLowerCase().replace(/ё/g, "е"); renderList(); };
+    $("allApply").onclick = function () {
+      var n = parseInt($("allQty").value, 10);
+      if (!(n >= 1 && n <= 9999)) { $("allQty").focus(); return; }
+      Object.keys(st.qty).forEach(function (id) { if (st.qty[id] > 0) st.qty[id] = n; });
+      haptic(); render();
+    };
+    $("discOwn").oninput = function () {
+      var t = this.value.trim().replace(",", ".").replace("%", "").replace("−", "-");
+      if (!t) { st.disc = 0; render(true); return; }
+      var m = /^([+-]?)(\d{1,2}(?:\.\d{1,2})?)$/.exec(t);
+      if (!m) return;
+      st.disc = Number(m[2]) * (m[1] === "+" ? 1 : -1);
+      render(true);
+    };
+    $("goLocal").onclick = submit;
+  }
+
+  function render(keepOwn) {
+    seg($("orgs"), data.orgs.map(function (o) { return [o.id, o.label]; }), st.org, function (v) { st.org = v; store("org", v); });
+    var org = data.orgs.filter(function (o) { return o.id === st.org; })[0];
+    $("vat").textContent = org ? (org.vat ? "Цены с НДС (" + org.vat + ")" : "Без НДС") : "Выберите организацию";
+    var own = DISC.indexOf(st.disc) < 0;
+    seg($("disc"), DISC.map(function (v) { return [v, v ? pctLabel(v) : "Без скидки"]; }), own ? null : st.disc,
+      function (v) { st.disc = v; $("discOwn").value = ""; });
+    if (!keepOwn && !own) $("discOwn").value = "";
+    $("scopeWrap").classList.toggle("hidden", !st.disc);
+    seg($("scope"), SCOPE, st.scope, function (v) { st.scope = v; });
+    seg($("fmt"), FMT, st.fmt, function (v) { st.fmt = v; store("fmt", v); });
+    renderList(); renderCalc();
+  }
+
+  function renderList() {
+    var list = $("list"); list.innerHTML = "";
+    var q = st.q, shown = 0;
+    data.sections.forEach(function (s) {
+      var items = s.items.filter(function (it) {
+        if (!q) return true;
+        var hay = (it.name + " " + s.name).toLowerCase().replace(/ё/g, "е");
+        return q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+      });
+      if (!items.length) return;
+      var sec = document.createElement("div"); sec.className = "sec";
+      sec.innerHTML = '<div class="sec-title"></div>'; sec.firstChild.textContent = s.name;
+      items.forEach(function (it) { sec.appendChild(itemRow(it)); shown++; });
+      list.appendChild(sec);
+    });
+    if (!shown) list.innerHTML = '<div class="muted" style="padding:14px 0">Ничего не найдено</div>';
+  }
+
+  function itemRow(it) {
+    var n = st.qty[it.id] || 0, ch = changeFor(it), unit = adjust(it.price, ch);
+    var row = document.createElement("div"); row.className = "item" + (n ? " on" : "");
+    var info = document.createElement("div"); info.className = "info";
+    info.innerHTML = '<div class="name"></div><div class="meta"></div>';
+    info.firstChild.textContent = it.name;
+    var meta = (it.kind === "service" ? "монтаж · " : "") + money(it.price);
+    info.lastChild.textContent = meta;
+    if (ch) { var s = document.createElement("span"); s.className = "new"; s.textContent = "  " + pctLabel(ch) + " → " + money(unit); info.lastChild.appendChild(s); }
+    info.onclick = function () { set(it.id, n + 1); };
+    var step = document.createElement("div"); step.className = "step";
+    if (n) {
+      var minus = btn("−", function () { set(it.id, n - 1); });
+      var inp = document.createElement("input"); inp.type = "number"; inp.min = 0; inp.max = 9999; inp.value = n; inp.inputMode = "numeric";
+      inp.onchange = function () { var v = parseInt(inp.value, 10); set(it.id, v >= 0 && v <= 9999 ? v : n); };
+      step.appendChild(minus); step.appendChild(inp);
+    }
+    var plus = btn("+", function () { set(it.id, n + 1); }); if (!n) plus.className = "add";
+    step.appendChild(plus);
+    row.appendChild(info); row.appendChild(step);
+    return row;
+  }
+
+  function btn(t, fn) { var b = document.createElement("button"); b.type = "button"; b.textContent = t; b.onclick = fn; return b; }
+  function set(id, n) { if (n > 0) st.qty[id] = n; else delete st.qty[id]; haptic(); renderList(); renderCalc(); }
+
+  function cart() {
+    return Object.keys(st.qty).filter(function (id) { return st.qty[id] > 0 && byId[id]; })
+      .sort(function (a, b) { return order[a] - order[b]; });
+  }
+
+  function renderCalc() {
+    var ids = cart(), total = 0, lines = $("lines"); lines.innerHTML = "";
+    ids.forEach(function (id) {
+      var it = byId[id], q = st.qty[id], unit = adjust(it.price, changeFor(it)), sum = unit * q; total += sum;
+      var l = document.createElement("div"); l.className = "l";
+      l.innerHTML = "<span></span><b></b>";
+      l.firstChild.textContent = it.name + (q > 1 ? " × " + q : "");
+      l.lastChild.textContent = money(sum);
+      lines.appendChild(l);
+    });
+    if (!ids.length) lines.innerHTML = '<div class="muted">Добавьте позиции из прайса или набор</div>';
+    $("total").textContent = money(total);
+    $("vatNote").textContent = st.disc ? "Изменение цены: " + pctLabel(st.disc) + " " + SCOPE.filter(function (x) { return x[0] === st.scope; })[0][1].toLowerCase() : "";
+    var count = ids.reduce(function (a, id) { return a + st.qty[id]; }, 0);
+    $("cnt").textContent = ids.length ? ids.length + " поз., " + count + " шт." : "Ничего не выбрано";
+    $("barTotal").textContent = money(total);
+    var ready = ids.length && st.org;
+    $("goLocal").disabled = !ready;
+    if (inTg) {
+      var mb = tg.MainButton;
+      mb.setText(st.org ? (ids.length ? "Сформировать КП · " + money(total) : "Выберите позиции") : "Выберите организацию");
+      if (ready) { mb.enable(); mb.show(); } else { mb.show(); mb.disable(); }
+    }
+  }
+
+  function payload() {
+    var pc = {};
+    if (st.disc) { if (st.scope === "all") pc.all = st.disc; else { pc.by_kind = {}; pc.by_kind[st.scope] = st.disc; } }
+    return { v: 1, org: st.org, items: cart().map(function (id) { return [id, st.qty[id]]; }), pc: pc, fmt: st.fmt };
+  }
+
+  function submit() {
+    if (!st.org) { alert("Выберите организацию"); return; }
+    if (!cart().length) { alert("Добавьте хотя бы одну позицию"); return; }
+    var json = JSON.stringify(payload());
+    if (json.length > 4000) { alert("Слишком много позиций для одной заявки"); return; }
+    if (inTg) tg.sendData(json);
+    else { window.__lastPayload = json; alert("Форма открыта не в Telegram. Данные заявки:\n" + json); }
+  }
+
+  if (inTg) tg.MainButton.onClick(submit);
+  start();
+})();
+</script>
+</body>
+</html>
