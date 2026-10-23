@@ -140,13 +140,14 @@
 <script>
 (function () {
   "use strict";
-  var tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData !== undefined ? window.Telegram.WebApp : null;
-  var inTg = !!(tg && tg.initData);
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  // С кнопки клавиатуры Telegram не передаёт initData, поэтому «внутри Telegram» определяем по платформе
+  var inTg = !!(tg && (tg.initData || (tg.platform && tg.platform !== "unknown")));
   if (inTg) document.body.classList.add("in-tg");
   if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
 
   var qs = new URLSearchParams(location.search);
-  var API = qs.get("api"), KEY = qs.get("k");
+  var API = qs.get("api"), UID = qs.get("u"), SIG = qs.get("s"), OLD = qs.get("k");
   var $ = function (id) { return document.getElementById(id); };
   var DISC = [0, -3, -5, -7, -10, -15, 5, 10];
   var FMT = [["docx", "📄 Word"], ["pdf", "📕 PDF"], ["both", "Оба"]];
@@ -172,9 +173,11 @@
   function fail(msg) { $("state").innerHTML = '<div class="err">' + msg + '</div>'; $("state").classList.remove("hidden"); }
 
   function start() {
-    if (!API || !KEY || !inTg) { fail("Откройте форму кнопкой «🧾 Форма КП» в чате с ботом в Telegram."); return; }
-    fetch(API + (API.indexOf("?") >= 0 ? "&" : "?") + "api=price&k=" + encodeURIComponent(KEY) +
-          "&init=" + encodeURIComponent(tg.initData))
+    if (OLD && !SIG) { fail("Кнопка формы устарела. Закройте форму, отправьте боту /start и откройте форму снова."); return; }
+    if (!API || !UID || !SIG || !inTg) { fail("Откройте форму кнопкой «🧾 Форма КП» в чате с ботом в Telegram."); return; }
+    var q = "api=price&u=" + encodeURIComponent(UID) + "&s=" + encodeURIComponent(SIG);
+    if (tg.initData) q += "&init=" + encodeURIComponent(tg.initData);
+    fetch(API + (API.indexOf("?") >= 0 ? "&" : "?") + q)
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (!res.ok) throw new Error(res.error || "ошибка");
