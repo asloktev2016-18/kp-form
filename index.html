@@ -68,6 +68,13 @@
   .err { color: var(--danger); }
   .hidden { display: none !important; }
   .in-tg .go.local { display: none; }
+  .offer { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; margin-top: 10px; align-items: center; }
+  .offer select { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px; font: inherit;
+    background: var(--bg2); color: var(--text); }
+  .offer .step input { width: 54px; font-size: 14px; }
+  .offer .muted { grid-column: 1 / -1; }
+  .offer-summary { padding: 7px 0; border-bottom: 1px solid var(--line); }
+  .offer-summary summary { cursor: pointer; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -75,7 +82,16 @@
   <div id="state" class="state">Загружаю прайс…</div>
 
   <div id="app" class="hidden">
-    <div class="card">
+    <div id="modeCard" class="card hidden">
+      <h2>Сколько предложений</h2>
+      <div id="mode" class="seg grow"></div>
+    </div>
+    <div id="batchCard" class="card hidden">
+      <h2>Три организации</h2>
+      <div class="muted">Выберите организации и задайте для каждой скидку (−) или наценку (+) от прайса.</div>
+      <div id="batchSlots"></div>
+    </div>
+    <div id="singleOrgCard" class="card">
       <h2>Организация</h2>
       <div id="orgs" class="seg grow"></div>
       <div id="vat" class="muted" style="margin-top:6px"></div>
@@ -102,7 +118,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div id="singleDiscountCard" class="card">
       <h2>Скидка или наценка</h2>
       <div id="disc" class="seg"></div>
       <div class="row">
@@ -118,14 +134,14 @@
     <div class="card">
       <h2>Расчёт</h2>
       <div id="lines" class="lines"></div>
-      <div class="total"><span>Итого</span><span id="total">0 ₽</span></div>
+      <div id="singleTotal" class="total"><span>Итого</span><span id="total">0 ₽</span></div>
       <div id="vatNote" class="muted"></div>
     </div>
 
     <div class="card">
       <h2>Файл</h2>
       <div id="fmt" class="seg grow"></div>
-      <p class="muted" style="margin:8px 0 0">Бот покажет расчёт и пришлёт файл в чат. Перед отправкой клиенту расчёт можно поправить кнопкой «✏️ Изменить».</p>
+      <p id="fileHint" class="muted" style="margin:8px 0 0">Бот пришлёт файл в чат.</p>
     </div>
   </div>
 </div>
@@ -154,7 +170,8 @@
   var SCOPE = [["all", "На всё"], ["service", "Монтаж"], ["product", "Оборудование"]];
 
   var data = null, byId = {}, order = {};
-  var st = { org: null, qty: {}, disc: 0, scope: "all", fmt: "docx", q: "" };
+  var st = { org: null, qty: {}, disc: 0, scope: "all", fmt: "docx", q: "", mode: 1,
+    offers: [{id: "", pct: 0}, {id: "", pct: 0}, {id: "", pct: 0}] };
 
   function store(k, v) { try { localStorage.setItem("kp_" + k, v); } catch (e) {} }
   function load(k) { try { return localStorage.getItem("kp_" + k); } catch (e) { return null; } }
@@ -164,13 +181,13 @@
   function adjust(price, pct) { var c = Math.round(pct * 100), v = price * (10000 + c); return Math.floor((v + 5000) / 10000); }
   function pctLabel(v) { return (v < 0 ? "−" : "+") + String(Math.abs(v)).replace(".", ",") + "%"; }
   function changeFor(item) {
-    if (!st.disc) return 0;
+    if (st.mode === 3 || !st.disc) return 0;
     if (st.scope === "all" || st.scope === item.kind) return st.disc;
     return 0;
   }
   function haptic() { try { tg && tg.HapticFeedback && tg.HapticFeedback.selectionChanged(); } catch (e) {} }
 
-  function fail(msg) { $("state").innerHTML = '<div class="err">' + msg + '</div>'; $("state").classList.remove("hidden"); }
+  function fail(msg) { $("state").textContent = msg; $("state").classList.add("err"); $("state").classList.remove("hidden"); }
 
   function start() {
     if (OLD && !SIG) { fail("Кнопка формы устарела. Закройте форму, отправьте боту /start и откройте форму снова."); return; }
@@ -182,6 +199,7 @@
       .then(function (res) {
         if (!res.ok) throw new Error(res.error || "ошибка");
         data = res.data;
+        if (data.batchEnabled && qs.get("mode") === "3") st.mode = 3;
         data.sections.forEach(function (s, si) { s.items.forEach(function (it, ii) { byId[it.id] = it; order[it.id] = si * 1000 + ii; }); });
         var lastOrg = load("org");
         st.org = data.orgs.some(function (o) { return o.id === lastOrg; }) ? lastOrg : null;
@@ -189,7 +207,7 @@
         $("state").classList.add("hidden"); $("app").classList.remove("hidden"); $("bar").classList.remove("hidden");
         renderStatic(); render();
       })
-      .catch(function (e) { fail("Не удалось загрузить прайс: " + (e.message || e) + "<br><br>Закройте форму и откройте снова."); });
+      .catch(function (e) { fail("Не удалось загрузить прайс: " + (e.message || e) + ". Закройте форму и откройте снова."); });
   }
 
   function seg(el, items, cur, onPick) {
@@ -229,7 +247,60 @@
     $("goLocal").onclick = submit;
   }
 
+  function renderOffers() {
+    var box = $("batchSlots");
+    box.innerHTML = "";
+    st.offers.forEach(function (offer, i) {
+      var row = document.createElement("div"); row.className = "offer";
+      var select = document.createElement("select");
+      select.setAttribute("aria-label", "Организация " + (i + 1));
+      select.appendChild(new Option("Выберите организацию", ""));
+      data.orgs.forEach(function (org) {
+        var option = new Option(org.label, org.id);
+        option.disabled = st.offers.some(function (other) { return other !== offer && other.id === org.id; });
+        select.appendChild(option);
+      });
+      select.value = offer.id;
+      select.onchange = function () { offer.id = select.value; offer.pct = 0; renderOffers(); renderCalc(); };
+      var step = document.createElement("div"); step.className = "step";
+      var input = document.createElement("input");
+      input.type = "text"; input.inputMode = "text"; input.maxLength = 4;
+      input.setAttribute("aria-label", "Отклонение для организации " + (i + 1) + ", %");
+      input.value = offer.pct ? pctLabel(offer.pct) : "0%";
+      var apply = function (value) {
+        offer.pct = value;
+        input.value = value ? pctLabel(value) : "0%";
+        renderCalc();
+      };
+      input.onchange = function () {
+        var raw = input.value.trim().replace(/^−/, "-").replace(/%$/, "");
+        if (raw && !/^[+-]?\d{1,2}$/.test(raw)) {
+          alert("Введите целый процент от −99 до +99.");
+          apply(offer.pct);
+          return;
+        }
+        apply(Number(raw));
+      };
+      var minus = btn("−", function () { apply(Math.max(-99, offer.pct - 1)); });
+      var plus = btn("+", function () { apply(Math.min(99, offer.pct + 1)); });
+      minus.setAttribute("aria-label", "Уменьшить на 1 процентный пункт");
+      plus.setAttribute("aria-label", "Увеличить на 1 процентный пункт");
+      step.appendChild(minus); step.appendChild(input); step.appendChild(plus);
+      row.appendChild(select); row.appendChild(step);
+      box.appendChild(row);
+    });
+  }
+
   function render(keepOwn) {
+    var batch = st.mode === 3;
+    $("modeCard").classList.toggle("hidden", !data.batchEnabled);
+    $("batchCard").classList.toggle("hidden", !batch);
+    $("singleOrgCard").classList.toggle("hidden", batch);
+    $("singleDiscountCard").classList.toggle("hidden", batch);
+    $("singleTotal").classList.toggle("hidden", batch);
+    seg($("mode"), [[1, "1 КП"], [3, "КП 3 шт."]], st.mode, function (v) { st.mode = v; });
+    if (batch) renderOffers();
+    $("fileHint").textContent = batch ? "Бот пришлёт отдельное КП от каждой организации." : "Бот пришлёт файл в чат. Расчёт можно поправить кнопкой «Изменить».";
     seg($("orgs"), data.orgs.map(function (o) { return [o.id, o.label]; }), st.org, function (v) { st.org = v; store("org", v); });
     var org = data.orgs.filter(function (o) { return o.id === st.org; })[0];
     $("vat").textContent = org ? (org.vat ? "Цены с НДС (" + org.vat + ")" : "Без НДС") : "Выберите организацию";
@@ -292,8 +363,45 @@
       .sort(function (a, b) { return order[a] - order[b]; });
   }
 
+  function offerTotal(ids, offer) {
+    return ids.reduce(function (sum, id) { return sum + adjust(byId[id].price, offer.pct) * st.qty[id]; }, 0);
+  }
+
+  function renderBatchCalc(ids, lines) {
+    var selected = st.offers.filter(function (o) { return o.id; });
+    selected.forEach(function (offer) {
+      var org = data.orgs.find(function (o) { return o.id === offer.id; });
+      var details = document.createElement("details"); details.className = "offer-summary";
+      var header = document.createElement("summary");
+      header.textContent = org.label + " · " + money(offerTotal(ids, offer));
+      details.appendChild(header);
+      ids.forEach(function (id) {
+        var it = byId[id], line = document.createElement("div"); line.className = "l";
+        var name = document.createElement("span"), cost = document.createElement("b");
+        name.textContent = ((it.batchNames || {})[offer.id] || it.name) + " × " + st.qty[id];
+        cost.textContent = money(adjust(it.price, offer.pct) * st.qty[id]);
+        line.appendChild(name); line.appendChild(cost); details.appendChild(line);
+      });
+      lines.appendChild(details);
+    });
+    var ready = selected.length === 3 && ids.length > 0;
+    $("vatNote").textContent = "Нажмите на организацию, чтобы увидеть её названия и цены.";
+    $("cnt").textContent = ids.length ? ids.length + " поз. в общей корзине" : "Ничего не выбрано";
+    $("barTotal").textContent = selected.length + " из 3 организаций";
+    $("goLocal").textContent = "Сформировать 3 КП";
+    $("goLocal").disabled = !ready;
+    if (inTg) {
+      var mb = tg.MainButton;
+      mb.setText(selected.length !== 3 ? "Выберите три организации" : !ids.length ? "Выберите позиции" : "Сформировать 3 КП");
+      mb.show();
+      if (ready) mb.enable(); else mb.disable();
+    }
+  }
+
   function renderCalc() {
     var ids = cart(), total = 0, lines = $("lines"); lines.innerHTML = "";
+    if (st.mode === 3) { renderBatchCalc(ids, lines); return; }
+    $("goLocal").textContent = "Сформировать КП";
     ids.forEach(function (id) {
       var it = byId[id], q = st.qty[id], unit = adjust(it.price, changeFor(it)), sum = unit * q; total += sum;
       var l = document.createElement("div"); l.className = "l";
@@ -318,16 +426,24 @@
   }
 
   function payload() {
+    if (st.mode === 3) {
+      var ids = cart();
+      return {v: 2, batch: st.offers.map(function (o) { return [o.id, o.pct]; }),
+        items: ids.map(function (id) { return [id, st.qty[id]]; }),
+        totals: st.offers.map(function (o) { return offerTotal(ids, o); }), fmt: st.fmt};
+    }
     var pc = {};
     if (st.disc) { if (st.scope === "all") pc.all = st.disc; else { pc.by_kind = {}; pc.by_kind[st.scope] = st.disc; } }
     return { v: 1, org: st.org, items: cart().map(function (id) { return [id, st.qty[id]]; }), pc: pc, fmt: st.fmt };
   }
 
   function submit() {
-    if (!st.org) { alert("Выберите организацию"); return; }
+    if (st.mode === 3) {
+      if (st.offers.some(function (o) { return !o.id; })) { alert("Выберите три организации"); return; }
+    } else if (!st.org) { alert("Выберите организацию"); return; }
     if (!cart().length) { alert("Добавьте хотя бы одну позицию"); return; }
     var json = JSON.stringify(payload());
-    if (json.length > 4000) { alert("Слишком много позиций для одной заявки"); return; }
+    if (new TextEncoder().encode(json).length > 4000) { alert("Слишком много позиций для одной заявки"); return; }
     if (inTg) tg.sendData(json);
     else { window.__lastPayload = json; alert("Форма открыта не в Telegram. Данные заявки:\n" + json); }
   }
